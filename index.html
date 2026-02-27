@@ -4,70 +4,149 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; background: #2196F3; color: white; }
-        /* 上半分：文字表示エリア */
-        #display { flex: 1; padding: 20px; font-size: 1.8rem; overflow-y: auto; white-space: pre-wrap; background: rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; text-align: center; }
-        /* 下半分：録音ボタン */
-        #btn { height: 40vh; background: #f44336; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; cursor: pointer; border-top: 4px solid white; }
-        .waiting { background: #4CAF50 !important; }
+        body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; background: #2196F3; color: white; overflow: hidden; }
+        #display { flex: 1; padding: 20px; font-size: 2rem; overflow-y: auto; display: flex; align-items: center; justify-content: center; text-align: center; }
+        #control-area { height: 40vh; display: flex; flex-direction: column; border-top: 4px solid white; }
+        .full-btn { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; cursor: pointer; text-align: center; padding: 10px; }
+        #confirm-row { flex: 1; display: none; }
+        .half-btn { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; cursor: pointer; border-right: 2px solid white; }
+        #mic-btn { background: #f44336; }
+        #send-btn { background: #4CAF50; }
+        #retry-btn { background: #757575; border-right: none; }
+        .loading { background: #9e9e9e !important; cursor: wait; }
     </style>
 </head>
 <body>
-    <div id="display">ここに送った内容が表示されます</div>
-    <div id="btn">ここを叩いて<br>お話しください</div>
+    <div id="display">画面を叩いてお話しください</div>
+    <div id="control-area">
+        <div id="mic-btn" class="full-btn">録音する</div>
+        <div id="confirm-row" class="full-btn">
+            <div id="send-btn" class="half-btn">送信</div>
+            <div id="retry-btn" class="half-btn">やり直し</div>
+        </div>
+    </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbzNiiuCaIb387mvlf5x81GlW07KKI_VZWHbbNDGbatbPGvJGuPmBr5-WSJ29l6YPuQ-/exec";
-        let mediaRecorder;
-        let audioChunks = [];
+        // --- 変数化エリア（ここを調整するだけで挙動が変わる） ---
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxCkwmRWVx6u5ZASKKaaM9ciROleGq-1kvHj4_77PxGw7JmwjZcraoylnttrIOkmzIF/exec";
+        const MAX_TIME = 45;              // 最大録音時間（秒）
+        const COUNTDOWN_START = 10;       // カウントダウン開始（残り秒数）
+        const SILENCE_TIME = 5;           // 無音判定時間（秒）
+        const SILENCE_THRESHOLD = 0.01;   // 無音判定のしきい値（音量感度）
 
-        const btn = document.getElementById('btn');
-        const display = document.getElementById('display');
+        let mediaRecorder, audioChunks = [], currentText = "";
+        let audioContext, analyser, dataArray, silenceTimer, recordingTimer, timeLeft = MAX_TIME;
 
-        btn.onclick = async () => {
+        const micBtn = document.getElementById('mic-btn'), confirmRow = document.getElementById('confirm-row'), display = document.getElementById('display');
+
+        micBtn.onclick = async () => {
             if (!mediaRecorder || mediaRecorder.state === "inactive") {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                mediaRecorder.onstop = sendData;
-                mediaRecorder.start();
-                btn.innerHTML = "録音中...<br>もう一度叩いて終了";
-                btn.style.background = "#ffeb3b"; btn.style.color = "black";
+                startRecording();
             } else {
-                mediaRecorder.stop();
-                btn.innerHTML = "送信中...";
-                btn.style.background = "#9e9e9e";
+                stopRecording("AI解析中...");
             }
         };
 
-        async function sendData() {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
-            const base64 = await new Promise(r => {
-                const reader = new FileReader();
-                reader.onloadend = () => r(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // 無音検知のセットアップ
+            audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser();
+            source.connect(analyser);
+            analyser.fftSize = 2048;
+            dataArray = new Float32Array(analyser.fftSize);
 
-            try {
-                // 文字を表示させるために mode: 'cors' を試みます
-                const response = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ audio: base64 })
-                });
-                const result = await response.json();
-                
-                if (result.status === "success") {
-                    display.innerText = "【送信内容】\n" + result.message;
-                    btn.innerHTML = "送信完了！<br>次を録音する";
-                    btn.style.background = "#4CAF50"; btn.style.color = "white";
-                } else {
-                    display.innerText = "エラー: " + result.message;
-                }
-            } catch (err) {
-                display.innerText = "送信は完了しました（確認中）";
-                btn.innerHTML = "タップして次へ";
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = handleRecordingStop;
+
+            mediaRecorder.start();
+            timeLeft = MAX_TIME;
+            updateButtonText();
+            
+            // タイマー系開始
+            recordingTimer = setInterval(countDown, 1000);
+            detectSilence();
+
+            micBtn.style.background = "#ffeb3b"; micBtn.style.color = "black";
+        }
+
+        function countDown() {
+            timeLeft--;
+            updateButtonText();
+            if (timeLeft <= 0) stopRecording("時間切れのため停止しました");
+        }
+
+        function updateButtonText() {
+            if (timeLeft <= COUNTDOWN_START) {
+                micBtn.innerText = `あと ${timeLeft} 秒`;
+            } else {
+                micBtn.innerText = "終わったら叩く\n（お話しください）";
             }
+        }
+
+        function detectSilence() {
+            if (!mediaRecorder || mediaRecorder.state !== "recording") return;
+            analyser.getFloatTimeDomainData(dataArray);
+            let peak = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                if (Math.abs(dataArray[i]) > peak) peak = Math.abs(dataArray[i]);
+            }
+
+            if (peak < SILENCE_THRESHOLD) {
+                if (!silenceTimer) silenceTimer = setTimeout(() => stopRecording("静かになったので停止しました"), SILENCE_TIME * 1000);
+            } else {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+            requestAnimationFrame(detectSilence);
+        }
+
+        function stopRecording(msg) {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                clearInterval(recordingTimer);
+                clearTimeout(silenceTimer);
+                micBtn.innerText = msg;
+                micBtn.classList.add('loading');
+            }
+        }
+
+        async function handleRecordingStop() {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const base64 = await new Promise(r => { const reader = new FileReader(); reader.onloadend = () => r(reader.result.split(',')[1]); reader.readAsDataURL(blob); });
+            
+            try {
+                const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "analyze", audio: base64 }) });
+                const json = await res.json();
+                if (json.status === "success") {
+                    currentText = json.message;
+                    display.innerText = currentText;
+                    micBtn.style.display = "none";
+                    confirmRow.style.display = "flex";
+                } else { display.innerText = "解析失敗"; resetUI(); }
+            } catch (err) { display.innerText = "通信エラー"; resetUI(); }
+        }
+
+        document.getElementById('send-btn').onclick = async () => {
+            display.innerText = "送信中...";
+            confirmRow.style.display = "none";
+            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "send", text: currentText }) });
+            alert("送信しました");
+            resetUI();
+        };
+
+        document.getElementById('retry-btn').onclick = resetUI;
+
+        function resetUI() {
+            micBtn.style.display = "flex"; confirmRow.style.display = "none";
+            micBtn.innerText = "録音する"; micBtn.style.background = "#f44336"; micBtn.style.color = "white";
+            micBtn.classList.remove('loading');
+            display.innerText = "画面を叩いてお話しください";
+            if (audioContext) audioContext.close();
         }
     </script>
 </body>
