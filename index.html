@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>声の伝言板</title>
+  <style>
+    body { margin: 0; background-color: #2196F3; color: white; overflow: hidden; font-family: sans-serif; }
+    #canvas { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 2.5rem; cursor: pointer; user-select: none; }
+    .recording { background-color: #F44336 !important; }
+    .loading { background-color: #FFEB3B !important; color: black !important; }
+  </style>
+</head>
+<body>
+  <div id="canvas">画面を叩いて<br>お話しください</div>
+
+  <script>
+    const GAS_URL = "ここにあなたのGASのデプロイURLを貼る"; 
+    const canvas = document.getElementById('canvas');
+    let mediaRecorder;
+    let audioChunks = [];
+
+    canvas.onclick = async () => {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+          mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+          mediaRecorder.onstop = sendAudio;
+          mediaRecorder.start();
+          canvas.innerHTML = "録音中...<br>終わったら叩く";
+          canvas.className = "recording";
+        } catch (err) {
+          alert("マイクを許可してください");
+        }
+      } else {
+        mediaRecorder.stop();
+        canvas.innerHTML = "送信中...";
+        canvas.className = "loading";
+      }
+    };
+
+    async function sendAudio() {
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const base64 = await new Promise(r => {
+        const reader = new FileReader();
+        reader.onloadend = () => r(reader.result.split(',')[1]);
+        reader.readAsDataURL(blob);
+      });
+
+      try {
+        // CORSエラーを物理的に回避する「Simple Request」形式
+        await fetch(GAS_URL, {
+          method: 'POST',
+          mode: 'no-cors', // これでブラウザの検閲をスルー
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ audio: base64 })
+        });
+        
+        canvas.innerHTML = "送信完了！<br>タップで次へ";
+        canvas.className = "";
+      } catch (err) {
+        canvas.innerHTML = "エラー発生<br>もう一度";
+        canvas.className = "";
+      }
+    }
+  </script>
+</body>
+</html>
