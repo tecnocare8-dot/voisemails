@@ -1,71 +1,74 @@
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>声の伝言板</title>
-  <style>
-    body { margin: 0; background-color: #2196F3; color: white; overflow: hidden; font-family: sans-serif; }
-    #canvas { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 2.5rem; cursor: pointer; user-select: none; }
-    .recording { background-color: #F44336 !important; }
-    .loading { background-color: #FFEB3B !important; color: black !important; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; background: #2196F3; color: white; }
+        /* 上半分：文字表示エリア */
+        #display { flex: 1; padding: 20px; font-size: 1.8rem; overflow-y: auto; white-space: pre-wrap; background: rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; text-align: center; }
+        /* 下半分：録音ボタン */
+        #btn { height: 40vh; background: #f44336; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; cursor: pointer; border-top: 4px solid white; }
+        .waiting { background: #4CAF50 !important; }
+    </style>
 </head>
 <body>
-  <div id="canvas">画面を叩いて<br>お話しください</div>
+    <div id="display">ここに送った内容が表示されます</div>
+    <div id="btn">ここを叩いて<br>お話しください</div>
 
-  <script>
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbx8HsAj9MHYVepdTH8J9yKhnKle3V-h7ZMC_0zcJFWyuzfUhCglw0j7MhY8Q7dm-RQ/exec"; 
-    const canvas = document.getElementById('canvas');
-    let mediaRecorder;
-    let audioChunks = [];
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbwKJERuRDB7LweVoj5HmSmBAHExtvlhvjEC9mZHH8xHoLaiI0A-LwfQBybE9tTtKpsG/exec";
+        let mediaRecorder;
+        let audioChunks = [];
 
-    canvas.onclick = async () => {
-      if (!mediaRecorder || mediaRecorder.state === "inactive") {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-          audioChunks = [];
-          mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-          mediaRecorder.onstop = sendAudio;
-          mediaRecorder.start();
-          canvas.innerHTML = "録音中...<br>終わったら叩く";
-          canvas.className = "recording";
-        } catch (err) {
-          alert("マイクを許可してください");
+        const btn = document.getElementById('btn');
+        const display = document.getElementById('display');
+
+        btn.onclick = async () => {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = sendData;
+                mediaRecorder.start();
+                btn.innerHTML = "録音中...<br>もう一度叩いて終了";
+                btn.style.background = "#ffeb3b"; btn.style.color = "black";
+            } else {
+                mediaRecorder.stop();
+                btn.innerHTML = "送信中...";
+                btn.style.background = "#9e9e9e";
+            }
+        };
+
+        async function sendData() {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const base64 = await new Promise(r => {
+                const reader = new FileReader();
+                reader.onloadend = () => r(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+
+            try {
+                // 文字を表示させるために mode: 'cors' を試みます
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ audio: base64 })
+                });
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    display.innerText = "【送信内容】\n" + result.message;
+                    btn.innerHTML = "送信完了！<br>次を録音する";
+                    btn.style.background = "#4CAF50"; btn.style.color = "white";
+                } else {
+                    display.innerText = "エラー: " + result.message;
+                }
+            } catch (err) {
+                display.innerText = "送信は完了しました（確認中）";
+                btn.innerHTML = "タップして次へ";
+            }
         }
-      } else {
-        mediaRecorder.stop();
-        canvas.innerHTML = "送信中...";
-        canvas.className = "loading";
-      }
-    };
-
-    async function sendAudio() {
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
-      const base64 = await new Promise(r => {
-        const reader = new FileReader();
-        reader.onloadend = () => r(reader.result.split(',')[1]);
-        reader.readAsDataURL(blob);
-      });
-
-      try {
-        // CORSエラーを物理的に回避する「Simple Request」形式
-        await fetch(GAS_URL, {
-          method: 'POST',
-          mode: 'no-cors', // これでブラウザの検閲をスルー
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ audio: base64 })
-        });
-        
-        canvas.innerHTML = "送信完了！<br>タップで次へ";
-        canvas.className = "";
-      } catch (err) {
-        canvas.innerHTML = "エラー発生<br>もう一度";
-        canvas.className = "";
-      }
-    }
-  </script>
+    </script>
 </body>
 </html>
