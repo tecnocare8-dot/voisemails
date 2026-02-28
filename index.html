@@ -22,7 +22,7 @@
     </style>
 </head>
 <body>
-    <div id="app-info">tecnocareVoice v0.3</div>
+    <div id="app-info">AwesomeVoice v0.3</div>
     <div id="display">画面を叩いてお話しください</div>
     <div id="control-area">
         <div id="mic-btn" class="full-btn">録音する</div>
@@ -49,12 +49,13 @@
     </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbz-OZuLl_BLFgSiRkS2nq7Z5SzwkMkVrn7rBjklglCOzipG9ayBen_VoaWQqxAuoY8bTA/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyxWyf2nIevja18gS9W7u-PYONHWuqR8zqtf1FYSE-_9BmV6DqjP6V2keJOQ9wuhs4LoQ/exec";
         const MAX_TIME = 45; const SILENCE_TIME = 5; const SILENCE_THRESHOLD = 0.01;
         let mediaRecorder, audioChunks = [], lastAnalysis = null, audioContext, analyser, dataArray, silenceTimer, recordingTimer;
         const micBtn = document.getElementById('mic-btn'), confirmRow = document.getElementById('confirm-row'), display = document.getElementById('display');
 
-        document.getElementById('app-info').onclick = () => {
+        document.getElementById('app-info').onclick = () => { openSettings(); };
+        function openSettings() {
             const saved = localStorage.getItem('awesome_voice_config');
             if (saved) {
                 const c = JSON.parse(saved);
@@ -64,8 +65,7 @@
                 document.getElementById('to-name').value = c.toName || "";
             }
             document.getElementById('settings-modal').style.display = 'block';
-        };
-
+        }
         function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
         function saveSettings() {
             const config = {
@@ -133,7 +133,7 @@
                 const json = await res.json();
                 if (json.status === "success") {
                     lastAnalysis = json.analysis;
-                    lastAnalysis.row = json.row; // 行番号を保持
+                    lastAnalysis.row = json.row;
                     display.innerText = lastAnalysis.inference;
                     micBtn.style.display = "none"; confirmRow.style.display = "flex";
                 } else { throw new Error(json.message); }
@@ -149,7 +149,7 @@
 
         document.getElementById('retry-btn').onclick = async () => {
             const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
-            confirmRow.style.display = "none"; display.innerText = "やり直します...";
+            confirmRow.style.display = "none";
             await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "log_only", analysis: lastAnalysis, row: lastAnalysis.row, settings: config, accepted: 0 }) });
             resetUI();
         };
@@ -158,15 +158,9 @@
             micBtn.style.display = "flex"; confirmRow.style.display = "none";
             micBtn.innerText = "録音する"; micBtn.style.background = "#f44336";
             micBtn.classList.remove('loading'); display.innerText = "画面を叩いてお話しください";
-            
-            if (mediaRecorder && mediaRecorder.stream) {
-                mediaRecorder.stream.getTracks().forEach(t => t.stop());
-            }
+            if (mediaRecorder && mediaRecorder.stream) { mediaRecorder.stream.getTracks().forEach(t => t.stop()); }
             if (audioContext) audioContext.close().catch(()=>{});
-            
-            mediaRecorder = null;
-            audioChunks = [];
-            lastAnalysis = null;
+            mediaRecorder = null; audioChunks = []; lastAnalysis = null;
         }
     </script>
 </body>
