@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AwesomeVoice v0.1</title>
     <style>
         body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; background: #2196F3; color: white; overflow: hidden; }
+        /* 右上のアプリ名（グレー表示） */
+        #app-info { position: fixed; top: 10px; right: 10px; color: rgba(255,255,255,0.4); font-size: 12px; cursor: pointer; user-select: none; z-index: 100; }
+        
         #display { flex: 1; padding: 20px; font-size: 2rem; overflow-y: auto; display: flex; align-items: center; justify-content: center; text-align: center; }
         #control-area { height: 40vh; display: flex; flex-direction: column; border-top: 4px solid white; }
         .full-btn { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; cursor: pointer; text-align: center; padding: 10px; }
@@ -14,9 +18,20 @@
         #send-btn { background: #4CAF50; }
         #retry-btn { background: #757575; border-right: none; }
         .loading { background: #9e9e9e !important; cursor: wait; }
+
+        /* 設定画面モーダル */
+        #settings-modal { 
+            display: none; position: fixed; top:0; left:0; width:100%; height:100%; 
+            background: rgba(0,0,0,0.9); z-index: 1000; padding: 30px; box-sizing: border-box; font-size: 1.2rem;
+        }
+        #settings-modal input { width: 100%; font-size: 1.5rem; margin: 10px 0 20px; padding: 10px; box-sizing: border-box; }
+        #settings-modal button { width: 100%; padding: 20px; font-size: 1.5rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; }
+        .style-options { display: flex; justify-content: space-around; margin: 20px 0; }
     </style>
 </head>
 <body>
+    <div id="app-info">AwesomeVoice v0.1</div>
+
     <div id="display">画面を叩いてお話しください</div>
     <div id="control-area">
         <div id="mic-btn" class="full-btn">録音する</div>
@@ -26,19 +41,77 @@
         </div>
     </div>
 
-    <script>
-        // --- 変数化エリア（ここを調整するだけで挙動が変わる） ---
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxCkwmRWVx6u5ZASKKaaM9ciROleGq-1kvHj4_77PxGw7JmwjZcraoylnttrIOkmzIF/exec";
-        const MAX_TIME = 45;              // 最大録音時間（秒）
-        const COUNTDOWN_START = 10;       // カウントダウン開始（残り秒数）
-        const SILENCE_TIME = 5;           // 無音判定時間（秒）
-        const SILENCE_THRESHOLD = 0.01;   // 無音判定のしきい値（音量感度）
+    <div id="settings-modal">
+        <h2>設定</h2>
+        <label>送信元の名前</label>
+        <input type="text" id="from-name" placeholder="田中一秀">
+        <label>送信先メールアドレス</label>
+        <input type="email" id="to-email" placeholder="example@gmail.com">
+        <label>送信先の名前</label>
+        <input type="text" id="to-name" placeholder="〇〇様">
+        
+        <label>文体選択</label>
+        <div class="style-options">
+            <label><input type="radio" name="context" value="家族へ" checked> 家族</label>
+            <label><input type="radio" name="context" value="友人へ"> 友人</label>
+            <label><input type="radio" name="context" value="仕事で"> 仕事</label>
+        </div>
+        
+        <button onclick="saveSettings()" style="background: #4CAF50; color: white; border: none;">保存</button>
+        <button onclick="closeSettings()" style="background: #757575; color: white; border: none;">閉じる</button>
+    </div>
 
-        let mediaRecorder, audioChunks = [], currentText = "";
+    <script>
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbyBwKIcMr_Z-64CDlvEze4SRWYVAWAiDO3MqU1TltJZBSBUsLs_h9cMRt4_ufy1a-J3XA/exec";
+        const MAX_TIME = 45;
+        const COUNTDOWN_START = 10;
+        const SILENCE_TIME = 5;
+        const SILENCE_THRESHOLD = 0.01;
+
+        let mediaRecorder, audioChunks = [], lastAnalysis = null;
         let audioContext, analyser, dataArray, silenceTimer, recordingTimer, timeLeft = MAX_TIME;
 
         const micBtn = document.getElementById('mic-btn'), confirmRow = document.getElementById('confirm-row'), display = document.getElementById('display');
 
+        // --- 隠し設定画面の制御 ---
+        let tapCount = 0;
+        document.getElementById('app-info').onclick = () => {
+            tapCount++;
+            if (tapCount >= 5) {
+                openSettings();
+                tapCount = 0;
+            }
+            setTimeout(() => { tapCount = 0; }, 2000);
+        };
+
+        function openSettings() {
+            const saved = localStorage.getItem('awesome_voice_config');
+            if (saved) {
+                const config = JSON.parse(saved);
+                document.getElementById('from-name').value = config.fromName || "";
+                document.getElementById('to-email').value = config.toEmail || "";
+                document.getElementById('to-name').value = config.toName || "";
+                const radios = document.getElementsByName('context');
+                for (let r of radios) if (r.value === config.context) r.checked = true;
+            }
+            document.getElementById('settings-modal').style.display = 'block';
+        }
+
+        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+
+        function saveSettings() {
+            const config = {
+                fromName: document.getElementById('from-name').value,
+                toEmail: document.getElementById('to-email').value,
+                toName: document.getElementById('to-name').value,
+                context: document.querySelector('input[name="context"]:checked').value
+            };
+            localStorage.setItem('awesome_voice_config', JSON.stringify(config));
+            alert("保存しました");
+            closeSettings();
+        }
+
+        // --- 録音・解析ロジック ---
         micBtn.onclick = async () => {
             if (!mediaRecorder || mediaRecorder.state === "inactive") {
                 startRecording();
@@ -49,8 +122,6 @@
 
         async function startRecording() {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            // 無音検知のセットアップ
             audioContext = new AudioContext();
             const source = audioContext.createMediaStreamSource(stream);
             analyser = audioContext.createAnalyser();
@@ -66,8 +137,6 @@
             mediaRecorder.start();
             timeLeft = MAX_TIME;
             updateButtonText();
-            
-            // タイマー系開始
             recordingTimer = setInterval(countDown, 1000);
             detectSilence();
 
@@ -81,20 +150,15 @@
         }
 
         function updateButtonText() {
-            if (timeLeft <= COUNTDOWN_START) {
-                micBtn.innerText = `あと ${timeLeft} 秒`;
-            } else {
-                micBtn.innerText = "終わったら叩く\n（お話しください）";
-            }
+            if (timeLeft <= COUNTDOWN_START) micBtn.innerText = `あと ${timeLeft} 秒`;
+            else micBtn.innerText = "終わったら叩く\n（お話しください）";
         }
 
         function detectSilence() {
             if (!mediaRecorder || mediaRecorder.state !== "recording") return;
             analyser.getFloatTimeDomainData(dataArray);
             let peak = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                if (Math.abs(dataArray[i]) > peak) peak = Math.abs(dataArray[i]);
-            }
+            for (let i = 0; i < dataArray.length; i++) if (Math.abs(dataArray[i]) > peak) peak = Math.abs(dataArray[i]);
 
             if (peak < SILENCE_THRESHOLD) {
                 if (!silenceTimer) silenceTimer = setTimeout(() => stopRecording("静かになったので停止しました"), SILENCE_TIME * 1000);
@@ -119,12 +183,21 @@
             const blob = new Blob(audioChunks, { type: 'audio/webm' });
             const base64 = await new Promise(r => { const reader = new FileReader(); reader.onloadend = () => r(reader.result.split(',')[1]); reader.readAsDataURL(blob); });
             
+            const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
+
             try {
-                const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "analyze", audio: base64 }) });
+                const res = await fetch(GAS_URL, { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        action: "analyze", 
+                        audio: base64,
+                        context: config.context || "家族へ" 
+                    }) 
+                });
                 const json = await res.json();
                 if (json.status === "success") {
-                    currentText = json.message;
-                    display.innerText = currentText;
+                    lastAnalysis = json.analysis; // JSONデータを保持
+                    display.innerText = lastAnalysis.inference; // 忖度文を表示
                     micBtn.style.display = "none";
                     confirmRow.style.display = "flex";
                 } else { display.innerText = "解析失敗"; resetUI(); }
@@ -132,9 +205,20 @@
         }
 
         document.getElementById('send-btn').onclick = async () => {
+            const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
+            if (!config.toEmail) { alert("設定画面から送信先を設定してください"); openSettings(); return; }
+
             display.innerText = "送信中...";
             confirmRow.style.display = "none";
-            await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "send", text: currentText }) });
+            
+            await fetch(GAS_URL, { 
+                method: 'POST', 
+                body: JSON.stringify({ 
+                    action: "send", 
+                    analysis: lastAnalysis,
+                    settings: config
+                }) 
+            });
             alert("送信しました");
             resetUI();
         };
@@ -147,6 +231,7 @@
             micBtn.classList.remove('loading');
             display.innerText = "画面を叩いてお話しください";
             if (audioContext) audioContext.close();
+            lastAnalysis = null;
         }
     </script>
 </body>
