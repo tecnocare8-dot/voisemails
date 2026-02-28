@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AwesomeVoice v0.2</title>
+    <title>AwesomeVoice v0.3</title>
     <style>
         body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; background: #2196F3; color: white; overflow: hidden; }
         #app-info { position: fixed; top: 10px; right: 10px; color: rgba(255,255,255,0.4); font-size: 12px; cursor: pointer; user-select: none; z-index: 100; }
@@ -18,11 +18,11 @@
         .loading { background: #9e9e9e !important; cursor: wait; }
         #settings-modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 1000; padding: 30px; box-sizing: border-box; overflow-y: auto; }
         #settings-modal input { width: 100%; font-size: 1.3rem; margin: 5px 0 15px; padding: 10px; box-sizing: border-box; }
-        #settings-modal button { width: 100%; padding: 15px; font-size: 1.3rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; }
+        #settings-modal button { width: 100%; padding: 15px; font-size: 1.3rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; border-radius: 5px; border:none; }
     </style>
 </head>
 <body>
-    <div id="app-info">tecnocareVoice v0.2</div>
+    <div id="app-info">tecnocareVoice v0.3</div>
     <div id="display">画面を叩いてお話しください</div>
     <div id="control-area">
         <div id="mic-btn" class="full-btn">録音する</div>
@@ -39,17 +39,17 @@
         <label>送信先の名前</label><input type="text" id="to-name">
         <label>送信先メール</label><input type="email" id="to-email">
         <label>文体</label>
-        <div style="margin: 10px 0;">
-            <input type="radio" name="context" value="家族へ" checked> 家族
-            <input type="radio" name="context" value="友人へ"> 友人
-            <input type="radio" name="context" value="仕事で"> 仕事
+        <div style="margin: 15px 0;">
+            <label><input type="radio" name="context" value="家族へ" checked> 家族</label>
+            <label><input type="radio" name="context" value="友人へ"> 友人</label>
+            <label><input type="radio" name="context" value="仕事で"> 仕事</label>
         </div>
-        <button onclick="saveSettings()" style="background: #4CAF50; color: white;">保存</button>
-        <button onclick="closeSettings()" style="background: #757575; color: white;">閉じる</button>
+        <button onclick="saveSettings()" style="background: #4CAF50; color: white;">保存して閉じる</button>
+        <button onclick="closeSettings()" style="background: #757575; color: white;">キャンセル</button>
     </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbz41gbzTbqxLxSussS5Chd2iuMunpi5u6VM3KWKT4YVpoNmPalrUEd0hdD3v8D3SSjeXQ/exec";
+        const GAS_URL = "ここに最新のデプロイURLを貼り付け";
         const MAX_TIME = 45; const SILENCE_TIME = 5; const SILENCE_THRESHOLD = 0.01;
         let mediaRecorder, audioChunks = [], lastAnalysis = null, audioContext, analyser, dataArray, silenceTimer, recordingTimer;
         const micBtn = document.getElementById('mic-btn'), confirmRow = document.getElementById('confirm-row'), display = document.getElementById('display');
@@ -133,23 +133,23 @@
                 const json = await res.json();
                 if (json.status === "success") {
                     lastAnalysis = json.analysis;
-                    lastAnalysis.row = json.row;
+                    lastAnalysis.row = json.row; // 行番号を保持
                     display.innerText = lastAnalysis.inference;
                     micBtn.style.display = "none"; confirmRow.style.display = "flex";
-                } else { throw new Error(); }
-            } catch (err) { display.innerText = "エラー発生"; resetUI(); }
+                } else { throw new Error(json.message); }
+            } catch (err) { display.innerText = "エラー: " + err.message; setTimeout(resetUI, 3000); }
         }
 
         document.getElementById('send-btn').onclick = async () => {
             const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
             display.innerText = "送信中..."; confirmRow.style.display = "none";
             await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "send", analysis: lastAnalysis, row: lastAnalysis.row, settings: config, accepted: 1 }) });
-            resetUI();
+            alert("送信完了"); resetUI();
         };
 
         document.getElementById('retry-btn').onclick = async () => {
             const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
-            confirmRow.style.display = "none"; display.innerText = "戻ります...";
+            confirmRow.style.display = "none"; display.innerText = "やり直します...";
             await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: "log_only", analysis: lastAnalysis, row: lastAnalysis.row, settings: config, accepted: 0 }) });
             resetUI();
         };
@@ -162,7 +162,7 @@
             if (mediaRecorder && mediaRecorder.stream) {
                 mediaRecorder.stream.getTracks().forEach(t => t.stop());
             }
-            if (audioContext) audioContext.close();
+            if (audioContext) audioContext.close().catch(()=>{});
             
             mediaRecorder = null;
             audioChunks = [];
