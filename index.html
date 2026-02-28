@@ -22,11 +22,13 @@
         /* 設定画面モーダル */
         #settings-modal { 
             display: none; position: fixed; top:0; left:0; width:100%; height:100%; 
-            background: rgba(0,0,0,0.9); z-index: 1000; padding: 30px; box-sizing: border-box; font-size: 1.2rem;
+            background: rgba(0,0,0,0.9); z-index: 1000; padding: 30px; box-sizing: border-box; font-size: 1.1rem; overflow-y: auto;
         }
-        #settings-modal input { width: 100%; font-size: 1.5rem; margin: 10px 0 20px; padding: 10px; box-sizing: border-box; }
-        #settings-modal button { width: 100%; padding: 20px; font-size: 1.5rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; }
-        .style-options { display: flex; justify-content: space-around; margin: 20px 0; }
+        #settings-modal h2 { margin-top: 0; }
+        #settings-modal label { display: block; margin-top: 10px; font-weight: bold; }
+        #settings-modal input { width: 100%; font-size: 1.3rem; margin: 5px 0 15px; padding: 10px; box-sizing: border-box; border-radius: 5px; border: none; }
+        #settings-modal button { width: 100%; padding: 15px; font-size: 1.3rem; font-weight: bold; cursor: pointer; margin-bottom: 10px; border-radius: 5px; border: none; }
+        .style-options { display: flex; justify-content: space-around; margin: 15px 0; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -43,12 +45,17 @@
 
     <div id="settings-modal">
         <h2>設定</h2>
-        <label>送信元の名前</label>
+        <label>あなたの名前（送信元名）</label>
         <input type="text" id="from-name" placeholder="田中一秀">
-        <label>送信先メールアドレス</label>
-        <input type="email" id="to-email" placeholder="example@gmail.com">
+        
+        <label>あなたのメールアドレス（返信先）</label>
+        <input type="email" id="from-email" placeholder="my-address@gmail.com">
+        
         <label>送信先の名前</label>
         <input type="text" id="to-name" placeholder="〇〇様">
+
+        <label>送信先メールアドレス</label>
+        <input type="email" id="to-email" placeholder="client@example.com">
         
         <label>文体選択</label>
         <div class="style-options">
@@ -57,12 +64,12 @@
             <label><input type="radio" name="context" value="仕事で"> 仕事</label>
         </div>
         
-        <button onclick="saveSettings()" style="background: #4CAF50; color: white; border: none;">保存</button>
-        <button onclick="closeSettings()" style="background: #757575; color: white; border: none;">閉じる</button>
+        <button onclick="saveSettings()" style="background: #4CAF50; color: white;">保存して閉じる</button>
+        <button onclick="closeSettings()" style="background: #757575; color: white;">キャンセル</button>
     </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbyBwKIcMr_Z-64CDlvEze4SRWYVAWAiDO3MqU1TltJZBSBUsLs_h9cMRt4_ufy1a-J3XA/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzf0nBvSlsH0BQU9ZKMPD1hKAJiC8qDb-r9DB9E2rwBIMAmgYOBg-mOIAiyfu2rYZZm/exec";
         const MAX_TIME = 45;
         const COUNTDOWN_START = 10;
         const SILENCE_TIME = 5;
@@ -89,6 +96,7 @@
             if (saved) {
                 const config = JSON.parse(saved);
                 document.getElementById('from-name').value = config.fromName || "";
+                document.getElementById('from-email').value = config.fromEmail || "";
                 document.getElementById('to-email').value = config.toEmail || "";
                 document.getElementById('to-name').value = config.toName || "";
                 const radios = document.getElementsByName('context');
@@ -102,6 +110,7 @@
         function saveSettings() {
             const config = {
                 fromName: document.getElementById('from-name').value,
+                fromEmail: document.getElementById('from-email').value,
                 toEmail: document.getElementById('to-email').value,
                 toName: document.getElementById('to-name').value,
                 context: document.querySelector('input[name="context"]:checked').value
@@ -196,17 +205,18 @@
                 });
                 const json = await res.json();
                 if (json.status === "success") {
-                    lastAnalysis = json.analysis; // JSONデータを保持
-                    display.innerText = lastAnalysis.inference; // 忖度文を表示
+                    lastAnalysis = json.analysis; 
+                    display.innerText = lastAnalysis.inference; 
                     micBtn.style.display = "none";
                     confirmRow.style.display = "flex";
                 } else { display.innerText = "解析失敗"; resetUI(); }
             } catch (err) { display.innerText = "通信エラー"; resetUI(); }
         }
 
+        // 送信ボタン
         document.getElementById('send-btn').onclick = async () => {
             const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
-            if (!config.toEmail) { alert("設定画面から送信先を設定してください"); openSettings(); return; }
+            if (!config.toEmail) { alert("設定から送信先を設定してください"); openSettings(); return; }
 
             display.innerText = "送信中...";
             confirmRow.style.display = "none";
@@ -216,14 +226,31 @@
                 body: JSON.stringify({ 
                     action: "send", 
                     analysis: lastAnalysis,
-                    settings: config
+                    settings: config,
+                    accepted: 1 // 採択ログ
                 }) 
             });
             alert("送信しました");
             resetUI();
         };
 
-        document.getElementById('retry-btn').onclick = resetUI;
+        // やり直しボタン
+        document.getElementById('retry-btn').onclick = async () => {
+            if (lastAnalysis) {
+                const config = JSON.parse(localStorage.getItem('awesome_voice_config') || "{}");
+                // 画面をリセットする裏で、不採択ログのみ送信
+                fetch(GAS_URL, { 
+                    method: 'POST', 
+                    body: JSON.stringify({ 
+                        action: "log_only", 
+                        analysis: lastAnalysis,
+                        settings: config,
+                        accepted: 0 // 不採択ログ
+                    }) 
+                });
+            }
+            resetUI();
+        };
 
         function resetUI() {
             micBtn.style.display = "flex"; confirmRow.style.display = "none";
